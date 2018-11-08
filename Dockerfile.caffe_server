@@ -71,7 +71,7 @@ RUN go get -ldflags="-s -w" caffe-server
 
 
 # We use a multi-stage build to get a smaller image for deployment.
-FROM nvidia/cuda:9.0-base-ubuntu16.04
+FROM nvidia/cuda:10.0-base-ubuntu16.04
 
 MAINTAINER Felix Abecassis "fabecassis@nvidia.com"
 
@@ -83,9 +83,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgoogle-glog0v5 \
         libhdf5-10 \
         libprotobuf9v5 \
-        libcudnn7=7.0.5.15-1+cuda9.0 \
-        cuda-cublas-9-0 \
-        cuda-curand-9-0 \
+        libcudnn7=7.0.5.15-1+cuda10.0 \
+        cuda-cublas-10-0 \
+        cuda-curand-10-0 \
         cuda-npp-9-0 && \
     rm -rf /var/lib/apt/lists/
 
