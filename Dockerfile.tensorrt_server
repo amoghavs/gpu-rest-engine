@@ -8,22 +8,13 @@ MAINTAINER Felix Abecassis "fabecassis@nvidia.com"
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         cmake \
-        git \
-        libboost-all-dev \
-        libgflags-dev \
-        libgoogle-glog-dev \
-        libprotobuf-dev \
-        pkg-config \
-        protobuf-compiler \
-        python-yaml \
-        wget && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install OpenCV 3.2.0 with CUDA support
-RUN git clone --depth 1 -b 3.2.0 https://github.com/Itseez/opencv.git /opencv && \
-    cd /opencv && \
+        git
+# Install OpenCV 3.3.1 with CUDA support
+# OpenCV 3.3.1 is needed to support custom allocators for GpuMat objects.
+RUN git clone --depth 1 -b 3.3.1 https://github.com/opencv/opencv.git /opencv && \
+    mkdir /opencv/build && cd /opencv/build && \
     cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
-          -DWITH_CUDA=ON -DCUDA_ARCH_BIN="${CUDA_ARCH}" -DCUDA_ARCH_PTX="${CUDA_ARCH}" \
+          -DWITH_CUDA=ON -DWITH_CUFFT=OFF -DCUDA_ARCH_BIN="${CUDA_ARCH_BIN}" -DCUDA_ARCH_PTX="${CUDA_ARCH_PTX}" \
           -DWITH_JPEG=ON -DBUILD_JPEG=ON -DWITH_PNG=ON -DBUILD_PNG=ON \
           -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF -DWITH_FFMPEG=OFF -DWITH_GTK=OFF \
           -DWITH_OPENCL=OFF -DWITH_QT=OFF -DWITH_V4L=OFF -DWITH_JASPER=OFF \
@@ -32,10 +23,25 @@ RUN git clone --depth 1 -b 3.2.0 https://github.com/Itseez/opencv.git /opencv &&
           -DBUILD_opencv_videostab=OFF -DBUILD_opencv_apps=OFF -DBUILD_opencv_flann=OFF \
           -DBUILD_opencv_ml=OFF -DBUILD_opencv_photo=OFF -DBUILD_opencv_shape=OFF \
           -DBUILD_opencv_cudabgsegm=OFF -DBUILD_opencv_cudaoptflow=OFF -DBUILD_opencv_cudalegacy=OFF \
-          -DCUDA_NVCC_FLAGS="-O3" -DCUDA_FAST_MATH=ON && \
-    make -j"$(nproc)" install && ldconfig && \
+          -DCUDA_NVCC_FLAGS="-O3" -DCUDA_FAST_MATH=ON .. && \
+    make -j"$(nproc)" install && \
+    ldconfig && \
     rm -rf /opencv
 
+# Install dependencies.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libboost-all-dev \
+        libgflags-dev \
+        libgoogle-glog-dev \
+        libprotobuf-dev \
+        pkg-config \
+        protobuf-compiler \
+        python3.4 \
+        python-yaml \
+        wget && \
+    rm -rf /var/lib/apt/lists/*
+
+    
 # Install golang
 ENV GOLANG_VERSION 1.8.1
 RUN wget -O - https://storage.googleapis.com/golang/go${GOLANG_VERSION}.linux-amd64.tar.gz \

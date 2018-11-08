@@ -74,9 +74,10 @@ InferenceEngine::InferenceEngine(const string& model_file,
     network->markOutput(*blob_name_to_tensor->find("prob"));
 
     // Build the engine
-    builder->setMaxBatchSize(1);
+    int batchSize = 4;
+    builder->setMaxBatchSize(batchSize);
     builder->setMaxWorkspaceSize(1 << 30);
-
+     LOG(ERROR) << "<InferenceEngine::InferenceEngine> batchSize: " << batchSize; //avs
     engine_ = builder->buildCudaEngine(*network);
     CHECK(engine_) << "Failed to create inference engine.";
 

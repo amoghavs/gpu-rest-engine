@@ -1,6 +1,6 @@
 package main
 
-// #cgo pkg-config: opencv cudart-8.0
+// #cgo pkg-config: opencv cudart-10.0
 // #cgo LDFLAGS: -lnvinfer -lnvcaffe_parser -lglog -lboost_system -lboost_thread
 // #cgo CXXFLAGS: -std=c++11 -I.. -O2 -fomit-frame-pointer -Wall
 // #include <stdlib.h>
