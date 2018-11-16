@@ -26,6 +26,7 @@ using namespace cv;
 
 /* Pair (label, confidence) representing a prediction. */
 typedef std::pair<string, float> Prediction;
+int batchSize = 2; //avs
 
 class Logger : public ILogger
 {
@@ -74,10 +75,9 @@ InferenceEngine::InferenceEngine(const string& model_file,
     network->markOutput(*blob_name_to_tensor->find("prob"));
 
     // Build the engine
-    int batchSize = 4;
     builder->setMaxBatchSize(batchSize);
     builder->setMaxWorkspaceSize(1 << 30);
-     LOG(ERROR) << "<InferenceEngine::InferenceEngine> batchSize: " << batchSize; //avs
+    LOG(ERROR) << "<InferenceEngine::InferenceEngine> batchSize: " << batchSize; //avs
     engine_ = builder->buildCudaEngine(*network);
     CHECK(engine_) << "Failed to create inference engine.";
 
@@ -111,7 +111,7 @@ private:
 
     std::vector<float> Predict(const Mat& img);
 
-    void WrapInputLayer(std::vector<GpuMat>* input_channels);
+    void WrapInputLayer(std::vector<GpuMat>* input_channels, int offset);
 
     void Preprocess(const Mat& img,
                     std::vector<GpuMat>* input_channels);
@@ -155,10 +155,10 @@ static bool PairCompare(const std::pair<float, int>& lhs,
 }
 
 /* Return the indices of the top N values of vector v. */
-static std::vector<int> Argmax(const std::vector<float>& v, int N)
+static std::vector<int> Argmax(const std::vector<float>& v, int offset,int N)
 {
     std::vector<std::pair<float, int>> pairs;
-    for (size_t i = 0; i < v.size(); ++i)
+    for (size_t i = offset; i < v.size(); ++i)
         pairs.push_back(std::make_pair(v[i], i));
     std::partial_sort(pairs.begin(), pairs.begin() + N, pairs.end(), PairCompare);
 
@@ -172,13 +172,16 @@ static std::vector<int> Argmax(const std::vector<float>& v, int N)
 std::vector<Prediction> Classifier::Classify(const Mat& img, int N)
 {
     std::vector<float> output = Predict(img);
-
-    std::vector<int> maxN = Argmax(output, N);
+    int j=0,offset=0;
     std::vector<Prediction> predictions;
-    for (int i = 0; i < N; ++i)
-    {
-        int idx = maxN[i];
-        predictions.push_back(std::make_pair(labels_[idx], output[idx]));
+    for(j=0;j<batchSize;j++){
+        offset = j*N;
+        std::vector<int> maxN = Argmax(output,offset,N);
+        for (int i = 0; i < batchSize*N; ++i)
+        {
+            int idx = maxN[i];
+            predictions.push_back(std::make_pair(labels_[idx], output[idx]));
+        }
     }
 
     return predictions;
@@ -195,13 +198,13 @@ void Classifier::SetModel()
     input_dim_ = static_cast<DimsCHW&&>(engine->getBindingDimensions(input_index));
     input_cv_size_ = Size(input_dim_.w(), input_dim_.h());
     // FIXME: could be wrapped in a thrust or GpuMat object.
-    size_t input_size = input_dim_.c() * input_dim_.h() * input_dim_.w() * sizeof(float);
+    size_t input_size = input_dim_.c() * input_dim_.h() * input_dim_.w() * sizeof(float) * batchSize;
     cudaError_t st = cudaMalloc(&input_layer_, input_size);
     CHECK_EQ(st, cudaSuccess) << "Could not allocate input layer.";
 
     int output_index = engine->getBindingIndex("prob");
     output_dim_ = static_cast<DimsCHW&&>(engine->getBindingDimensions(output_index));
-    size_t output_size = output_dim_.c() * output_dim_.h() * output_dim_.w() * sizeof(float);
+    size_t output_size = output_dim_.c() * output_dim_.h() * output_dim_.w() * sizeof(float) * batchSize;
     st = cudaMalloc(&output_layer_, output_size);
     CHECK_EQ(st, cudaSuccess) << "Could not allocate output layer.";
 }
@@ -220,6 +223,7 @@ void Classifier::SetMean(const string& mean_file)
     CHECK_EQ(c, input_dim_.c())
         << "Number of channels of mean file doesn't match input layer.";
 
+    LOG(ERROR) << "<InferenceEngine::InferenceEngine> input_dim_.c: " <<(input_dim_.c())<<"\t h: "<<h<<"\t w: "<<w; //avs
     /* The format of the mean file is planar 32-bit float BGR or grayscale. */
     std::vector<Mat> channels;
     float* data = (float*)mean_blob->getData();
@@ -254,16 +258,19 @@ void Classifier::SetLabels(const string& label_file)
 std::vector<float> Classifier::Predict(const Mat& img)
 {
     std::vector<GpuMat> input_channels;
-    WrapInputLayer(&input_channels);
-
-    Preprocess(img, &input_channels);
+    int i=0,offset = 0;
+    for(i=0;i<batchSize;i++){
+        offset = i*( input_dim_.w() *  input_dim_.w() * input_dim_.c());
+        WrapInputLayer(&input_channels,offset);
+        Preprocess(img, &input_channels);
+    }
 
     void* buffers[2] = { input_layer_, output_layer_ };
-    context_->execute(1, buffers);
+    context_->execute(batchSize, buffers);
 
-    size_t output_size = output_dim_.c() * output_dim_.h() * output_dim_.w();
+    size_t output_size = output_dim_.c() * output_dim_.h() * output_dim_.w() * sizeof(float)*batchSize;
     std::vector<float> output(output_size);
-    cudaError_t st = cudaMemcpy(output.data(), output_layer_, output_size * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaError_t st = cudaMemcpy(output.data(), output_layer_, output_size, cudaMemcpyDeviceToHost);
     if (st != cudaSuccess)
         throw std::runtime_error("could not copy output layer back to host");
 
@@ -275,11 +282,11 @@ std::vector<float> Classifier::Predict(const Mat& img)
  * don't need to rely on cudaMemcpy2D. The last preprocessing
  * operation will write the separate channels directly to the input
  * layer. */
-void Classifier::WrapInputLayer(std::vector<GpuMat>* input_channels)
+void Classifier::WrapInputLayer(std::vector<GpuMat>* input_channels,int offset)
 {
     int width = input_dim_.w();
     int height = input_dim_.h();
-    float* input_data = input_layer_;
+    float* input_data = input_layer_+ offset;
     for (int i = 0; i < input_dim_.c(); ++i)
     {
         GpuMat channel(height, width, CV_32FC1, input_data);
@@ -471,6 +478,7 @@ const char* classifier_classify(classifier_ctx* ctx,
 
         /* Write the top N predictions in JSON format. */
         std::ostringstream os;
+        LOG(ERROR) << "<InferenceEngine::classifier_classify> predictions.size(): " <<(predictions.size())<<"\t batchSize: "<<batchSize<<"\n"; //avs
         os << "[";
         for (size_t i = 0; i < predictions.size(); ++i)
         {
@@ -481,7 +489,7 @@ const char* classifier_classify(classifier_ctx* ctx,
             if (i != predictions.size() - 1)
                 os << ",";
         }
-        os << "]";
+        os << "]\n";
 
         errno = 0;
         std::string str = os.str();
