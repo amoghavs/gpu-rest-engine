@@ -66,9 +66,15 @@ COPY common.h /go/src/common.h
 RUN go get -ldflags="-s" tensorrt-server
 
 # Download model
-RUN git clone -b caffe-0.15 --depth 1 https://github.com/NVIDIA/caffe.git /caffe && \
-    /caffe/scripts/download_model_binary.py /caffe/models/bvlc_alexnet && \
-    /caffe/data/ilsvrc12/get_ilsvrc_aux.sh
+#RUN git clone -b caffe-0.15 --depth 1 https://github.com/NVIDIA/caffe.git /caffe && \
+#    /caffe/scripts/download_model_binary.py /caffe/models/bvlc_alexnet && \
+#    /caffe/data/ilsvrc12/get_ilsvrc_aux.sh
+
+ADD repo_caffe /caffe
+RUN ls -ltr /caffe
+RUN ls -ltr /caffe/models/bvlc_alexnet
+RUN ls -ltr /caffe/data/ilsvrc12/
+
 
 CMD ["tensorrt-server", "/caffe/models/bvlc_alexnet/deploy.prototxt", \
      "/caffe/models/bvlc_alexnet/bvlc_alexnet.caffemodel", \

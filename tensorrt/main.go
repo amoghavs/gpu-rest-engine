@@ -45,6 +45,7 @@ func main() {
 	cmean := C.CString(os.Args[3])
 	clabel := C.CString(os.Args[4])
 
+	//log.Println("cmodel: %v\t ctrained: %v\tcmean: --%v--\t clabel: --%s--",cmodel,ctrained,cmean,clabel)
 	log.Println("Initializing TensorRT classifiers")
 	var err error
 	ctx, err = C.classifier_initialize(cmodel, ctrained, cmean, clabel)

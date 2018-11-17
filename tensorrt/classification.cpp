@@ -26,7 +26,7 @@ using namespace cv;
 
 /* Pair (label, confidence) representing a prediction. */
 typedef std::pair<string, float> Prediction;
-int batchSize = 2; //avs
+int batchSize = 1; //avs
 
 class Logger : public ILogger
 {
@@ -114,7 +114,7 @@ private:
     void WrapInputLayer(std::vector<GpuMat>* input_channels, int offset);
 
     void Preprocess(const Mat& img,
-                    std::vector<GpuMat>* input_channels);
+                    std::vector<GpuMat>* input_channels,int offset);
 
 private:
     GPUAllocator* allocator_;
@@ -211,7 +211,9 @@ void Classifier::SetModel()
 
 void Classifier::SetMean(const string& mean_file)
 {
+    LOG(ERROR) << "<InferenceEngine::InferenceEngine> mean_file:\t"<<mean_file;
     ICaffeParser* parser = createCaffeParser();
+
     IBinaryProtoBlob* mean_blob = parser->parseBinaryProto(mean_file.c_str());
     parser->destroy();
     CHECK(mean_blob) << "Could not load mean file.";
@@ -223,7 +225,7 @@ void Classifier::SetMean(const string& mean_file)
     CHECK_EQ(c, input_dim_.c())
         << "Number of channels of mean file doesn't match input layer.";
 
-    LOG(ERROR) << "<InferenceEngine::InferenceEngine> input_dim_.c: " <<(input_dim_.c())<<"\t h: "<<h<<"\t w: "<<w; //avs
+    LOG(ERROR) << "<InferenceEngine::InferenceEngine> \tinput_dim_.c: " <<(input_dim_.c())<<"\t h: "<<h<<"\t w: "<<w; //avs
     /* The format of the mean file is planar 32-bit float BGR or grayscale. */
     std::vector<Mat> channels;
     float* data = (float*)mean_blob->getData();
@@ -257,12 +259,13 @@ void Classifier::SetLabels(const string& label_file)
 
 std::vector<float> Classifier::Predict(const Mat& img)
 {
-    std::vector<GpuMat> input_channels;
+    //std::vector<GpuMat> input_channels;
     int i=0,offset = 0;
     for(i=0;i<batchSize;i++){
+        std::vector<GpuMat> input_channels;
         offset = i*( input_dim_.w() *  input_dim_.w() * input_dim_.c());
         WrapInputLayer(&input_channels,offset);
-        Preprocess(img, &input_channels);
+        Preprocess(img, &input_channels,offset);
     }
 
     void* buffers[2] = { input_layer_, output_layer_ };
@@ -296,7 +299,7 @@ void Classifier::WrapInputLayer(std::vector<GpuMat>* input_channels,int offset)
 }
 
 void Classifier::Preprocess(const Mat& host_img,
-                            std::vector<GpuMat>* input_channels)
+                            std::vector<GpuMat>* input_channels,int offset)
 {
     int num_channels = input_dim_.c();
     GpuMat img(host_img, allocator_);
@@ -333,8 +336,7 @@ void Classifier::Preprocess(const Mat& host_img,
      * objects in input_channels. */
     cuda::split(sample_normalized, *input_channels);
 
-    CHECK(reinterpret_cast<float*>(input_channels->at(0).data) == input_layer_)
-        << "Input channels are not wrapping the input layer of the network.";
+    //CHECK(reinterpret_cast<float*>(input_channels->at(0).data) == input_layer_)<< "Input channels are not wrapping the input layer of the network.";
 }
 
 /* By using Go as the HTTP server, we have potentially more CPU threads than
@@ -413,6 +415,7 @@ classifier_ctx* classifier_initialize(char* model_file, char* trained_file,
 {
     try
     {
+        std::cout<<"\t <classifier_initialize> model_file "<<model_file<<"\n"<<"trained_file: "<<trained_file<<"\nmean_file: "<<mean_file<<"\nlabel_file: "<<label_file<<"\n";
         ::google::InitGoogleLogging("inference_server");
 
         int device_count;
