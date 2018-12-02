@@ -26,7 +26,7 @@ using namespace cv;
 
 /* Pair (label, confidence) representing a prediction. */
 typedef std::pair<string, float> Prediction;
-int batchSize = 1; //avs
+int batchSize = 2; //avs
 
 class Logger : public ILogger
 {
@@ -259,13 +259,13 @@ void Classifier::SetLabels(const string& label_file)
 
 std::vector<float> Classifier::Predict(const Mat& img)
 {
-    //std::vector<GpuMat> input_channels;
+    std::vector<GpuMat> input_channels[batchSize];
     int i=0,offset = 0;
     for(i=0;i<batchSize;i++){
-        std::vector<GpuMat> input_channels;
+        //std::vector<GpuMat> input_channels;
         offset = i*( input_dim_.w() *  input_dim_.w() * input_dim_.c());
-        WrapInputLayer(&input_channels,offset);
-        Preprocess(img, &input_channels,offset);
+        WrapInputLayer(&input_channels[i],offset);
+        Preprocess(img, &input_channels[i],offset);
     }
 
     void* buffers[2] = { input_layer_, output_layer_ };
@@ -305,28 +305,46 @@ void Classifier::Preprocess(const Mat& host_img,
     GpuMat img(host_img, allocator_);
     /* Convert the input image to the input image format of the network. */
     GpuMat sample(allocator_);
+    int path = 0;
     if (img.channels() == 3 && num_channels == 1)
         cuda::cvtColor(img, sample, CV_BGR2GRAY);
-    else if (img.channels() == 4 && num_channels == 1)
+    else if (img.channels() == 4 && num_channels == 1){
+        path = 1;
         cuda::cvtColor(img, sample, CV_BGRA2GRAY);
-    else if (img.channels() == 4 && num_channels == 3)
+    }
+    else if (img.channels() == 4 && num_channels == 3){
+        path = 2;
         cuda::cvtColor(img, sample, CV_BGRA2BGR);
-    else if (img.channels() == 1 && num_channels == 3)
+    }
+    else if (img.channels() == 1 && num_channels == 3){
+        path = 3;
         cuda::cvtColor(img, sample, CV_GRAY2BGR);
-    else
+    }
+    else{
+        path = 4;
         sample = img;
+    }
+    std::cout<<"\t Classifier::Preprocess path "<<path<<"\n";
 
     GpuMat sample_resized(allocator_);
-    if (sample.size() != input_cv_size_)
+    if (sample.size() != input_cv_size_){
+        path = 0;
         cuda::resize(sample, sample_resized, input_cv_size_);
-    else
+    }
+    else{
+        path =1;
         sample_resized = sample;
+    }
 
     GpuMat sample_float(allocator_);
-    if (num_channels == 3)
+    if (num_channels == 3){
+        path+=10;
         sample_resized.convertTo(sample_float, CV_32FC3);
-    else
+    }
+    else{
+        path+=20;
         sample_resized.convertTo(sample_float, CV_32FC1);
+    }
 
     GpuMat sample_normalized(allocator_);
     cuda::subtract(sample_float, mean_, sample_normalized);
@@ -335,7 +353,7 @@ void Classifier::Preprocess(const Mat& host_img,
      * input layer of the network because it is wrapped by the Mat
      * objects in input_channels. */
     cuda::split(sample_normalized, *input_channels);
-
+    std::cout<<"\t Classifier::Preprocess path "<<path<<"\n";
     //CHECK(reinterpret_cast<float*>(input_channels->at(0).data) == input_layer_)<< "Input channels are not wrapping the input layer of the network.";
 }
 
